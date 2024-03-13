@@ -1,0 +1,196 @@
+import pygame
+import random
+
+# Constants
+SCREEN_WIDTH = 1000
+SCREEN_HEIGHT = 900
+CELL_SIZE = 20
+PADDLE_SPEED = 0.5
+INITIAL_LENGTH = 5
+FOOD_SIZE = CELL_SIZE
+FOOD_SPAWN_CHANCE = 0.01
+FOOD_SHRINK_CHANCE = 0.01
+FOOD_TIMER_MAX = 1000
+FOOD_TIMER_DECREMENT = 10
+BRICK_WIDTH = CELL_SIZE * 2
+BRICK_HEIGHT = CELL_SIZE
+LINE_HEIGHT = SCREEN_HEIGHT // 3
+
+# Colors
+WHITE = (255, 255, 255)
+BLACK = (0, 0, 0)
+GREEN = (0, 255, 0)
+BLUE = (0, 0, 255)
+RED = (255, 0, 0)
+BRICK_COLOR = (0, 0, 150)
+
+# Initialize Pygame
+pygame.init()
+
+# Create the screen
+screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+pygame.display.set_caption("Breakout Snake")
+
+clock = pygame.time.Clock()
+
+# Class for the snake
+class Snake:
+    def __init__(self):
+        self.direction = "RIGHT"
+        self.body = []
+        for i in range(INITIAL_LENGTH):
+            self.body.append([100 - i * CELL_SIZE, SCREEN_HEIGHT - 100])
+    
+    def move(self):
+        head = self.body[0].copy()
+        if self.direction == "UP":
+            head[1] -= CELL_SIZE
+        elif self.direction == "DOWN":
+            head[1] += CELL_SIZE
+        elif self.direction == "LEFT":
+            head[0] -= CELL_SIZE
+        elif self.direction == "RIGHT":
+            head[0] += CELL_SIZE
+        self.body.insert(0, head)
+        self.body.pop()  # Remove the last segment to maintain the length
+    
+    def grow(self):
+        self.body.append(self.body[-1].copy())
+
+    def collide_with_food(self, food_rect):
+        head_rect = pygame.Rect(self.body[0], (CELL_SIZE, CELL_SIZE))
+        return head_rect.colliderect(food_rect)
+
+    def collide_with_wall(self):
+        head_x, head_y = self.body[0]
+        return head_x < 0 or head_x >= SCREEN_WIDTH or head_y < 0 or head_y >= SCREEN_HEIGHT
+
+    def collide_with_line(self):
+        return self.body[0][1] <= LINE_HEIGHT
+
+    def collide_with_self(self):
+        return self.body[0] in self.body[1:]
+
+    def collide_with_ball(self, ball_rect):
+        head_rect = pygame.Rect(self.body[0], (CELL_SIZE, CELL_SIZE))
+        return head_rect.colliderect(ball_rect)
+
+# Class for the ball
+class Ball:
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.x = SCREEN_WIDTH // 2
+        self.y = SCREEN_HEIGHT // 2
+        self.speed_x = random.choice([-5, 5])
+        self.speed_y = random.choice([-5, 5])
+
+    def move(self):
+        self.x += self.speed_x
+        self.y += self.speed_y
+
+        if self.y <= 0 or self.y >= SCREEN_HEIGHT:
+            self.speed_y *= -1
+
+        if self.x <= 0 or self.x >= SCREEN_WIDTH:
+            self.speed_x *= -1
+
+    def bounce(self, direction):
+        if direction == "horizontal":
+            self.speed_x *= -1
+        elif direction == "vertical":
+            self.speed_y *= -1
+
+# Class for the food
+class Food(pygame.sprite.Sprite):
+    def __init__(self):
+        super().__init__()
+        self.image = pygame.Surface([FOOD_SIZE, FOOD_SIZE])
+        self.image.fill(GREEN)
+        self.rect = self.image.get_rect()
+        self.rect.x = random.randint(0, (SCREEN_WIDTH - CELL_SIZE) // CELL_SIZE) * CELL_SIZE
+        self.rect.y = random.randint(SCREEN_HEIGHT // 3, SCREEN_HEIGHT - CELL_SIZE)
+        self.timer = FOOD_TIMER_MAX
+
+    def update(self):
+        self.timer -= 1
+        if self.timer <= 0:
+            self.kill()
+
+# Class for the brick
+class Brick(pygame.sprite.Sprite):
+    def __init__(self, x, y):
+        super().__init__()
+        self.image = pygame.Surface([BRICK_WIDTH, BRICK_HEIGHT])
+        self.image.fill(BRICK_COLOR)
+        self.rect = self.image.get_rect()
+        self.rect.x = x
+        self.rect.y = y
+
+# Create snake, ball, and sprite groups
+snake = Snake()
+ball = Ball()
+food_sprites = pygame.sprite.Group()
+brick_sprites = pygame.sprite.Group()
+
+# Create bricks
+brick_gap = 2
+for col in range(0, SCREEN_WIDTH, BRICK_WIDTH + brick_gap):
+    brick = Brick(col, 0)
+    brick_sprites.add(brick)
+
+# Main game loop
+running = True
+while running:
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            running = False
+        elif event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_UP and snake.direction != "DOWN":
+                snake.direction = "UP"
+            elif event.key == pygame.K_DOWN and snake.direction != "UP":
+                snake.direction = "DOWN"
+            elif event.key == pygame.K_LEFT and snake.direction != "RIGHT":
+                snake.direction = "LEFT"
+            elif event.key == pygame.K_RIGHT and snake.direction != "LEFT":
+                snake.direction = "RIGHT"
+
+    # Spawn food
+    if random.random() < FOOD_SPAWN_CHANCE:
+        new_food = Food()
+        food_sprites.add(new_food)
+
+    # Check for collisions with food
+    for food in food_sprites:
+        if snake.collide_with_food(food.rect):
+            snake.grow()
+            food.kill()
+
+    # Update snake
+    snake.move()
+
+    # Check for collisions with wall, red line, or itself
+    if snake.collide_with_wall() or snake.collide_with_line() or snake.collide_with_self():
+        running = False
+
+    # Check for collision between snake and ball
+    if snake.collide_with_ball(pygame.Rect((ball.x, ball.y), (CELL_SIZE, CELL_SIZE))):
+        ball.bounce("horizontal")
+
+    # Move ball
+    ball.move()
+
+    # Draw everything
+    screen.fill(BLACK)
+    for segment in snake.body:
+        pygame.draw.rect(screen, GREEN, pygame.Rect(segment, (CELL_SIZE, CELL_SIZE)))
+    pygame.draw.circle(screen, WHITE, (ball.x, ball.y), CELL_SIZE // 2)
+    food_sprites.draw(screen)
+    brick_sprites.draw(screen)
+    pygame.draw.line(screen, RED, (0, LINE_HEIGHT), (SCREEN_WIDTH, LINE_HEIGHT))
+    pygame.display.flip()
+
+    clock.tick(20)  # Adjust snake speed
+
+pygame.quit()
